@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panda</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #title {
+      font-family: sans-serif;
+      font-size: 26px;
+      color: #222;
+      margin-bottom: 24px;
+      letter-spacing: 0.04em;
+    }
+
+    #startOverlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      cursor: pointer;
+      background: rgba(180, 180, 180, 0.55);
+      backdrop-filter: grayscale(1) brightness(0.85);
+      transition: opacity 0.4s ease;
+    }
+
+    #startOverlay span {
+      font-family: sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: #222;
+      letter-spacing: 0.06em;
+      background: rgba(255,255,255,0.85);
+      padding: 14px 28px;
+      border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+      pointer-events: none;
+    }
+
+    #label {
+      font-family: sans-serif;
+      font-size: 18px;
+      color: #444;
+      margin-top: 16px;
+      height: 32px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    #label.visible { opacity: 1; }
+
+    .wrap {
+      position: relative;
+      width: 420px;
+      height: 420px;
+    }
+
+    .panda-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: filter 0.25s ease;
+      pointer-events: none;
+    }
+
+    .panda-img.panda-lit {
+      filter: brightness(1.5) saturate(1.3)
+              drop-shadow(0 0 14px rgba(255,210,60,0.9))
+              drop-shadow(0 0 40px rgba(255,170,0,0.5));
+    }
+
+    .chest-glow {
+      position: absolute;
+      /* chest hair sits roughly here in the 420px render */
+      top: 218px; left: 135px;
+      width: 150px; height: 70px;
+      border-radius: 50%;
+      pointer-events: none;
+      transition: background 0.25s ease, box-shadow 0.25s ease;
+      z-index: 2;
+    }
+
+    .chest-glow.active {
+      background: radial-gradient(ellipse, rgba(255,220,80,0.9) 0%, rgba(255,180,0,0.5) 50%, transparent 80%);
+      box-shadow: 0 0 28px 10px rgba(255,210,60,0.6);
+    }
+
+    .sparks {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .sparks.active { opacity: 1; }
+
+    .spark {
+      position: absolute;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #ffe066;
+    }
+
+    .sparks.active .spark { animation: sparkle 1s ease-in-out infinite; }
+
+    .spark:nth-child(1) { top: 55%; left: 37%; animation-delay: 0.00s; }
+    .spark:nth-child(2) { top: 57%; left: 54%; animation-delay: 0.15s; }
+    .spark:nth-child(3) { top: 50%; left: 47%; animation-delay: 0.30s; }
+    .spark:nth-child(4) { top: 63%; left: 41%; animation-delay: 0.45s; }
+    .spark:nth-child(5) { top: 61%; left: 57%; animation-delay: 0.60s; }
+    .spark:nth-child(6) { top: 53%; left: 32%; animation-delay: 0.20s; }
+    .spark:nth-child(7) { top: 59%; left: 63%; animation-delay: 0.50s; }
+    .spark:nth-child(8) { top: 66%; left: 49%; animation-delay: 0.35s; }
+
+    @keyframes sparkle {
+      0%   { transform: scale(0)   translateY(0px);   opacity: 0; }
+      30%  { transform: scale(1.4) translateY(-4px);  opacity: 1; }
+      70%  { transform: scale(0.8) translateY(-10px); opacity: 0.8; }
+      100% { transform: scale(0)   translateY(-18px); opacity: 0; }
+    }
+
+    /* The hit canvas sits on top and captures all mouse events */
+    #hitCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+  <div id="startOverlay"><span>点击屏幕开始</span></div>
+  <div id="title">谢谢您，黄老师</div>
+  <div class="wrap" id="wrap">
+    <img class="panda-img" id="pandaImg" src="panda.png" alt="Panda" crossorigin="anonymous">
+    <div class="chest-glow" id="chestGlow"></div>
+    <div class="sparks" id="sparks">
+      <div class="spark"></div><div class="spark"></div>
+      <div class="spark"></div><div class="spark"></div>
+      <div class="spark"></div><div class="spark"></div>
+      <div class="spark"></div><div class="spark"></div>
+    </div>
+    <canvas id="hitCanvas"></canvas>
+  </div>
+  <div id="label"></div>
+
+  <script>
+    const pandaImg  = document.getElementById('pandaImg');
+    const hitCanvas = document.getElementById('hitCanvas');
+    const hitCtx    = hitCanvas.getContext('2d', { willReadFrequently: true });
+    const chestGlow = document.getElementById('chestGlow');
+    const sparks    = document.getElementById('sparks');
+
+    // Chest hair region in 0–1 normalised coords (tuned to panda.png)
+    const CHEST = { x: 0.32, y: 0.52, w: 0.36, h: 0.16 };
+    const WHITE = 240; // pixels brighter than this on all channels = background
+
+    let ready = false;
+
+    function setup() {
+      hitCanvas.width  = pandaImg.naturalWidth;
+      hitCanvas.height = pandaImg.naturalHeight;
+      hitCtx.drawImage(pandaImg, 0, 0);
+      try {
+        hitCtx.getImageData(0, 0, 1, 1);
+        ready = true;
+      } catch(e) {
+        console.warn('Pixel read blocked — serve via http, not file://', e);
+      }
+    }
+
+    if (pandaImg.complete && pandaImg.naturalWidth) setup();
+    else pandaImg.addEventListener('load', setup);
+
+    function pixelIsPanda(nx, ny) {
+      const x = Math.round(nx * hitCanvas.width);
+      const y = Math.round(ny * hitCanvas.height);
+      const d = hitCtx.getImageData(x, y, 1, 1).data;
+      return !(d[0] > WHITE && d[1] > WHITE && d[2] > WHITE);
+    }
+
+    function inChest(nx, ny) {
+      return nx >= CHEST.x && nx <= CHEST.x + CHEST.w &&
+             ny >= CHEST.y && ny <= CHEST.y + CHEST.h;
+    }
+
+    // Audio via WebAudio — decodes mp3 buffers and plays them through AudioContext
+    // which browsers allow on mousemove (a user gesture), unlike HTMLAudioElement autoplay
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const buffers = {};
+
+    async function loadSound(name, url) {
+      const res = await fetch(url);
+      const arr = await res.arrayBuffer();
+      buffers[name] = await actx.decodeAudioData(arr);
+    }
+
+    Promise.all([loadSound('panda', 'panda.mp3'), loadSound('chest', 'chest.mp3')]);
+
+    let currentSource = null;
+
+    function stopAll() {
+      if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; }
+    }
+
+    function playSound(s) {
+      stopAll();
+      if (!buffers[s]) return;
+      const src = actx.createBufferSource();
+      src.buffer = buffers[s];
+      src.connect(actx.destination);
+      src.start();
+      currentSource = src;
+    }
+
+    // Chrome requires a click to unlock AudioContext — show overlay, dismiss on click
+    let audioUnlocked = false;
+    const startOverlay = document.getElementById('startOverlay');
+
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      audioUnlocked = true;
+      actx.resume();
+      startOverlay.style.opacity = '0';
+      startOverlay.style.pointerEvents = 'none';
+      setTimeout(() => startOverlay.style.display = 'none', 400);
+    }
+
+    startOverlay.addEventListener('click', unlockAudio);
+
+    const label = document.getElementById('label');
+    const labelText = { panda: '熊猫 (xióngmāo)', chest: '胸毛 (xiōngmáo)' };
+
+    // 'none' | 'panda' | 'chest'
+    let state = 'none';
+    let soundTimer = null;
+
+    function scheduleSound(s) {
+      clearTimeout(soundTimer);
+      if (s === 'none') { stopAll(); return; }
+      // Small delay so transient intermediate states (panda while entering chest) don't fire
+      soundTimer = setTimeout(() => playSound(s), 80);
+    }
+
+    function setState(next) {
+      if (next === state) return;
+      state = next;
+      pandaImg.classList.toggle('panda-lit', state === 'panda');
+      chestGlow.classList.toggle('active',   state === 'chest');
+      sparks.classList.toggle('active',      state === 'chest');
+      if (state === 'none') {
+        label.classList.remove('visible');
+      } else {
+        label.textContent = labelText[state];
+        label.classList.add('visible');
+      }
+      scheduleSound(state);
+    }
+
+    function evaluate(clientX, clientY) {
+      if (!ready) return;
+      const rect = hitCanvas.getBoundingClientRect();
+      const nx = (clientX - rect.left) / rect.width;
+      const ny = (clientY - rect.top)  / rect.height;
+
+      if (nx < 0 || ny < 0 || nx > 1 || ny > 1 || !pixelIsPanda(nx, ny)) {
+        setState('none');
+      } else if (inChest(nx, ny)) {
+        setState('chest');
+      } else {
+        setState('panda');
+      }
+    }
+
+    // Listen on document so fast mouse movement never escapes
+    document.addEventListener('mousemove', (e) => { if (audioUnlocked) evaluate(e.clientX, e.clientY); });
+
+    // Click replays the sound for whatever state is active
+    document.addEventListener('click', () => {
+      if (state !== 'none') playSound(state);
+    });
+  </script>
+</body>
+</html>
